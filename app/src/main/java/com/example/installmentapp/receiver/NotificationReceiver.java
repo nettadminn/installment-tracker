@@ -12,7 +12,6 @@ import android.os.Build;
 
 import androidx.core.app.NotificationCompat;
 
-import com.example.installmentapp.InstallmentListFragment;
 import com.example.installmentapp.R;
 import com.example.installmentapp.database.InstallmentDbHelper;
 import com.example.installmentapp.model.Installment;

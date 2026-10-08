@@ -1,7 +1,6 @@
 package com.example.installmentapp.util;
 
 import android.icu.util.PersianCalendar;
-import android.icu.util.TimeZone;
 import android.icu.util.ULocale;
 import android.os.Build;
 
@@ -11,7 +10,6 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Locale;
-import java.util.TimeZone;
 
 public class DateConverter {
 

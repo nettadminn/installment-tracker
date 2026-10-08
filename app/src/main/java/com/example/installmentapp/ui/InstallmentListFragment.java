@@ -16,7 +16,7 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.example.installmentapp.InstallmentAdapter;
+import com.example.installmentapp.adapter.InstallmentAdapter;
 import com.example.installmentapp.R;
 import com.example.installmentapp.database.InstallmentDbHelper;
 import com.example.installmentapp.model.Installment;
