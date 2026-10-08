@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Installment Tracker</string>
+    <string name="action_settings">Settings</string>
+    <string name="title">Title</string>
+    <string name="amount">Amount</string>
+    <string name="due_date">Due Date</string>
+    <string name="notify_days">Notify Days Before</string>
+    <string name="add_installment">Add Installment</string>
+    <string name="edit_installment">Edit Installment</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="no_installments">No installments found. Tap + to add one.</string>
+</resources>
