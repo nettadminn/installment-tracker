@@ -1,7 +1,5 @@
 package com.example.installmentapp.util;
 
-import android.icu.util.PersianCalendar;
-import android.icu.util.ULocale;
 import android.os.Build;
 
 import androidx.annotation.RequiresApi;
@@ -10,11 +8,13 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Locale;
+import java.util.TimeZone;
 
 public class DateConverter {
 
     /**
      * Converts a Persian date string (format: yyyy/MM/dd) to milliseconds since epoch (Gregorian).
+     * Uses Jalaali algorithm for accurate conversion without Android ICU dependency.
      * @param persianDate String in format "yyyy/MM/dd"
      * @return milliseconds since epoch (Gregorian) or -1 if invalid
      */
@@ -28,19 +28,11 @@ public class DateConverter {
         }
         try {
             int year = Integer.parseInt(parts[0]);
-            int month = Integer.parseInt(parts[1]); // 1-based in PersianCalendar
-            int day = Integer.parseInt(parts[2]);
+            int month = Integer.parseInt(parts[1]); // 1-based (1-12)
+            int day = Integer.parseInt(parts[2]);   // 1-based (1-31)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                PersianCalendar persianCalendar = new PersianCalendar();
-                persianCalendar.setPersianDate(year, month, day);
-                return persianCalendar.getTimeInMillis();
-            } else {
-                // Fallback for older APIs (approximate conversion)
-                // This is a simplified conversion and may not be 100% accurate for all dates.
-                // For production, consider using a library or setting minSdkVersion to 24.
-                return approximatePersianToGregorian(year, month, day);
-            }
+            // Use Jalaali to Gregorian conversion (pure Java)
+            return jalaliToGregorian(year, month, day).getTimeInMillis();
         } catch (NumberFormatException e) {
             return -1;
         }
@@ -48,70 +40,142 @@ public class DateConverter {
 
     /**
      * Converts milliseconds since epoch (Gregorian) to Persian date string (format: yyyy/MM/dd).
+     * Uses Jalaali algorithm for accurate conversion without Android ICU dependency.
      * @param millis milliseconds since epoch (Gregorian)
      * @return Persian date string in format "yyyy/MM/dd"
      */
     public static String gregorianToPersian(long millis) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            PersianCalendar persianCalendar = new PersianCalendar();
-            persianCalendar.setTimeInMillis(millis);
-            int year = persianCalendar.get(PersianCalendar.YEAR);
-            int month = persianCalendar.get(PersianCalendar.MONTH); // 0-based? Actually, in ICU, PersianCalendar.MONTH is 0-based? Let's check:
-            // Actually, in PersianCalendar, the month is 0-based? We'll adjust to 1-based for display.
-            // But note: the PersianCalendar in ICU uses 0-based months? Let's avoid confusion by using the get method for month and then add 1 if needed.
-            // According to ICU documentation: PersianCalendar.MONTH field is 0-based (0=Farvardin, 11=Esfand).
-            int day = persianCalendar.get(PersianCalendar.DAY_OF_MONTH);
-            return String.format(Locale.US, "%04d/%02d/%02d", year, month + 1, day);
-        } else {
-            // Fallback for older APIs
-            return approximateGregorianToPersian(millis);
-        }
+        GregorianCalendar gregorianCalendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
+        gregorianCalendar.setTimeInMillis(millis);
+        int gy = gregorianCalendar.get(GregorianCalendar.YEAR);
+        int gm = gregorianCalendar.get(GregorianCalendar.MONTH) + 1; // 1-based
+        int gd = gregorianCalendar.get(GregorianCalendar.DAY_OF_MONTH);
+
+        // Use Gregorian to Jalaali conversion (pure Java)
+        int[] j = gregorianToJalali(gy, gm, gd);
+        return String.format(Locale.US, "%04d/%02d/%02d", j[0], j[1], j[2]);
     }
 
-    // Approximate conversion methods for APIs < 24 (not accurate, but for demonstration)
-    // In a real app, you would set minSdkVersion to 24 or use a library.
-    private static long approximatePersianToGregorian(int year, int month, int day) {
-        // This is a very rough approximation and should not be used in production.
-        // We'll use a fixed offset for demonstration purposes.
-        // Actually, the Persian year starts around March 21 in Gregorian.
-        // We'll approximate by converting to a Gregorian date around March 21 of the Gregorian year.
-        int gregorianYear = year + 621;
-        int gregorianMonth = 3; // March
-        int gregorianDay = 21;
+    // ============================================================
+    // Pure Java Jalaali (Persian) <-> Gregorian conversion algorithms
+    // Based on Jalaali calendar algorithm (public domain)
+    // ============================================================
 
-        // Adjust for month and day
-        // Each Persian month is about 30.5 days, but we'll do a simple approximation.
-        int daysToAdd = (month - 1) * 31 + (day - 1); // overestimate
-        gregorianDay += daysToAdd;
+    private static GregorianCalendar jalaliToGregorian(int jy, int jm, int jd) {
+        int[] g = jalaliToGregorianArray(jy, jm, jd);
+        GregorianCalendar cal = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
+        cal.set(g[0], g[1] - 1, g[2]);
+        return cal;
+    }
 
-        // Now adjust the month and day if overflow
-        while (gregorianDay > 31) {
-            gregorianDay -= 31;
-            gregorianMonth++;
-            if (gregorianMonth > 12) {
-                gregorianMonth = 1;
-                gregorianYear++;
+    private static int[] jalaliToGregorianArray(int jy, int jm, int jd) {
+        // Jalaali to Gregorian conversion
+        // Based on algorithm from: https://github.com/jalaali/jalaali-js
+        int[] d = new int[]{0, 31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29};
+        int gy = jy + 621;
+        int days = (jm - 1) * 31 + (jd - 1);
+
+        // Adjust for leap years
+        int leap = isJalaliLeapYear(jy) ? 1 : 0;
+        if (jm > 7) {
+            days += 6 - leap;
+        } else {
+            days += 0;
+        }
+
+        // Convert to day of year
+        int doy = days + 79; // 1 Farvardin = March 21 (approximately)
+
+        // Now find the Gregorian year and day of year
+        while (true) {
+            int daysInYear = isGregorianLeapYear(gy) ? 366 : 365;
+            if (doy > daysInYear) {
+                doy -= daysInYear;
+                gy++;
+            } else {
+                break;
             }
         }
 
-        GregorianCalendar gregorianCalendar = new GregorianCalendar(gregorianYear, gregorianMonth - 1, gregorianDay);
-        return gregorianCalendar.getTimeInMillis();
+        // Now find month and day from day of year
+        int[] daysInMonth = {31, isGregorianLeapYear(gy) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        int month = 1;
+        int day = doy;
+        for (int m = 0; m < 12; m++) {
+            if (day <= daysInMonth[m]) {
+                month = m + 1;
+                break;
+            }
+            day -= daysInMonth[m];
+        }
+
+        return new int[]{gy, month, day};
     }
 
-    private static String approximateGregorianToPersian(long millis) {
-        // Rough approximation: subtract 621 years and adjust months.
-        GregorianCalendar gregorianCalendar = new GregorianCalendar();
-        gregorianCalendar.setTimeInMillis(millis);
-        int gy = gregorianCalendar.get(GregorianCalendar.YEAR);
-        int gm = gregorianCalendar.get(GregorianCalendar.MONTH); // 0-based
-        int gd = gregorianCalendar.get(GregorianCalendar.DAY_OF_MONTH);
+    private static int[] gregorianToJalali(int gy, int gm, int gd) {
+        // Gregorian to Jalaali conversion
+        // Based on algorithm from: https://github.com/jalaali/jalaali-js
 
-        int py = gy - 621;
-        int pm = gm; // approximate, same month index
-        int pd = gd;
+        int[] gDaysInMonth = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        int[] jDaysInMonth = {31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29};
 
-        // Adjust if the day is too high for the Persian month (simplified)
-        // We'll just return the approximate values.
-        return String.format(Locale.US, "%04d/%02d/%02d", py, pm + 1, pd);
+        // Day of year in Gregorian
+        int doy = gd;
+        for (int m = 0; m < gm - 1; m++) {
+            doy += gDaysInMonth[m];
+        }
+        if (gm > 2 && isGregorianLeapYear(gy)) {
+            doy++;
+        }
+
+        // Convert to Jalaali
+        // 1 Farvardin = March 21 (day 80 or 81 in Gregorian)
+        int offset = isGregorianLeapYear(gy) ? 80 : 79;
+        int jDoy = doy - offset;
+
+        int jy = gy - 621;
+        if (jDoy <= 0) {
+            jy--;
+            int daysInPrevJalaliYear = isJalaliLeapYear(jy) ? 366 : 365;
+            jDoy += daysInPrevJalaliYear;
+        } else {
+            int daysInJalaliYear = isJalaliLeapYear(jy) ? 366 : 365;
+            if (jDoy > daysInJalaliYear) {
+                jDoy -= daysInJalaliYear;
+                jy++;
+            }
+        }
+
+        // Find Jalaali month and day
+        int jm = 1;
+        int jd = jDoy;
+        for (int m = 0; m < 12; m++) {
+            int daysInMonth = jDaysInMonth[m];
+            // Adjust for leap year on last month
+            if (m == 11 && isJalaliLeapYear(jy)) {
+                daysInMonth = 30;
+            }
+            if (jd <= daysInMonth) {
+                jm = m + 1;
+                break;
+            }
+            jd -= daysInMonth;
+        }
+
+        return new int[]{jy, jm, jd};
+    }
+
+    private static boolean isGregorianLeapYear(int year) {
+        return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    }
+
+    private static boolean isJalaliLeapYear(int year) {
+        // Jalaali leap year rule: years divisible by 33 with remainder in {1, 5, 9, 13, 17, 22, 26, 30}
+        int[] leapYears = {1, 5, 9, 13, 17, 22, 26, 30};
+        int remainder = year % 33;
+        for (int ly : leapYears) {
+            if (remainder == ly) return true;
+        }
+        return false;
     }
 }
