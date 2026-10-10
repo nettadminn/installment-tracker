@@ -4,7 +4,9 @@ import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -25,6 +27,8 @@ import com.example.installmentapp.receiver.NotificationReceiver;
 import java.util.List;
 
 public class InstallmentListFragment extends Fragment implements InstallmentAdapter.OnItemClickListener {
+
+    private static final String TAG = "InstallmentListFragment";
 
     private RecyclerView recyclerView;
     private InstallmentAdapter adapter;
@@ -87,31 +91,47 @@ public class InstallmentListFragment extends Fragment implements InstallmentAdap
         dbHelper.deleteInstallment(installment.getId());
         loadInstallments();
         scheduleNotifications(); // Reschedule after deletion
-        Toast.makeText(requireContext(), "Installment deleted", Toast.LENGTH_SHORT).show();
+        Toast.makeText(requireContext(), "قسط حذف شد", Toast.LENGTH_SHORT).show();
     }
 
     private void scheduleNotifications() {
-        AlarmManager alarmManager = (AlarmManager) requireContext().getSystemService(Context.ALARM_SERVICE);
-        Intent intent = new Intent(requireContext(), NotificationReceiver.class);
-        PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                requireContext(), 0, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-
-        // Cancel existing alarms
-        alarmManager.cancel(pendingIntent);
-
-        // Get all installments and set the earliest notification
-        List<Installment> installments = dbHelper.getAllInstallments();
-        long earliestTrigger = Long.MAX_VALUE;
-        for (Installment inst : installments) {
-            long notifyTime = inst.getDueDateMillis() - (inst.getNotifyDaysBefore() * 24 * 60 * 60 * 1000L);
-            if (notifyTime < earliestTrigger) {
-                earliestTrigger = notifyTime;
+        try {
+            // Check exact alarm permission (Android 14+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                AlarmManager alarmManager = (AlarmManager) requireContext().getSystemService(Context.ALARM_SERVICE);
+                if (!alarmManager.canScheduleExactAlarms()) {
+                    Log.w(TAG, "Cannot schedule exact alarms - permission not granted");
+                    return;
+                }
             }
-        }
 
-        if (earliestTrigger != Long.MAX_VALUE) {
-            // Set alarm for the earliest notification
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, earliestTrigger, pendingIntent);
+            AlarmManager alarmManager = (AlarmManager) requireContext().getSystemService(Context.ALARM_SERVICE);
+            Intent intent = new Intent(requireContext(), NotificationReceiver.class);
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                    requireContext(), 0, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+            // Cancel existing alarms
+            alarmManager.cancel(pendingIntent);
+
+            // Get all installments and set the earliest notification
+            List<Installment> installments = dbHelper.getAllInstallments();
+            long earliestTrigger = Long.MAX_VALUE;
+            for (Installment inst : installments) {
+                long notifyTime = inst.getDueDateMillis() - (inst.getNotifyDaysBefore() * 24 * 60 * 60 * 1000L);
+                if (notifyTime < earliestTrigger) {
+                    earliestTrigger = notifyTime;
+                }
+            }
+
+            if (earliestTrigger != Long.MAX_VALUE) {
+                // Set alarm for the earliest notification
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, earliestTrigger, pendingIntent);
+                Log.d(TAG, "Alarm scheduled for: " + earliestTrigger);
+            }
+        } catch (SecurityException e) {
+            Log.e(TAG, "SecurityException scheduling alarm - exact alarm permission may be missing", e);
+        } catch (Exception e) {
+            Log.e(TAG, "Error scheduling notifications", e);
         }
     }
 }
